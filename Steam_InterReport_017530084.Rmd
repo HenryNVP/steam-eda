@@ -1,0 +1,627 @@
+---
+title: "Project Report: Exploratory Data Analysis of Steam Games"
+author: "Henry Nguyen"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 1. Introduction
+
+The gaming industry is worth billions of dollars and is anticipated to keep developing within the following a long time. Among the gaming platforms, Steam is a dominant digital distribution service and storefront for PC games. The Steam Games Dataset is chosen to conduct exploratory data analysis. The analysis may provide valuable insights into game trends and player preferences, helping developers and publishers identify popular genres, optimize pricing strategies, and enhance user engagement. The project tries to answer to following questions:
+
+- What are the most popular games and publishers?
+- What are the trending game genres over time?
+- What factors are correlated with game pricing, and how they may affect pricing strategy?
+- What are the relationships between factors like user play time, ratings, scores, recommendations...?
+
+## 2. Data
+
+### Data Source
+
+The Steam Games Dataset is retrieved from [steam-games-dataset](https://huggingface.co/datasets/FronkonGames/steam-games-dataset/tree/main) on Hugging Face.
+
+```{r}
+indata <- read.csv("games.csv")
+```
+
+```{r}
+head(indata)
+dim(indata)
+```
+
+### Data Collection
+
+The data was collected by extracting all games from the Steam platform via its Web API, combining with extra data from SteamSpy ([Steam-Games-Scraper](https://github.com/FronkonGames/Steam-Games-Scraper)).
+
+### Cases
+
+The units of observation in this dataset are individual games. Each row represents a game published on Steam.
+
+### Variables
+
+```{r}
+names(indata)
+```
+
+The variables that will be studied include:
+
+- Name: Game title
+- Release date: Important for trend analysis
+- Estimated owners: Indicates the game's popularity.
+- Price: Important for pricing strategy.
+- Windows / Mac / Linux: Provides information about compatible OS.
+- User score: Important for evaluating player perceptions.
+- Positive / Negative: Useful for sentiment analysis and overall reception.
+- Recommendations: Reflects players' satisfaction
+- Average / Median play time forever / in two weeks: Reflects engagements of players in the games.
+- Genres: Essential for understanding the type of games and market positioning.
+- Developers and Publishers: Useful for analyzing industry trends and brand performance.
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+```
+
+```{r}
+df <- indata %>% select(Name, Release.date, Estimated.owners, Price, Windows, Mac, Linux, User.score, Positive, Negative, Recommendations, Average.playtime.forever, Average.playtime.two.weeks, Median.playtime.forever, Median.playtime.two.weeks, Genres, Developers, Publishers)
+df <- as_tibble(df)
+```
+
+```{r}
+head(df)
+dim(df)
+summary(df)
+```
+
+### Type of Study
+
+This project is an observation study. By visualizing and summarizing the data, the project aim to gain insights into this dataset.
+
+## 3. Data Quality
+
+- **Missing Data**: Assess and handle any missing values.
+
+```{r}
+sum(is.na(df))
+```
+
+The simplified dataset has only 5 missing values. Those rows with missing values are removed.
+
+```{r}
+df <- df %>% drop_na()
+sum(is.na(df))
+```
+
+- **Duplicates**: Check for and remove duplicate entries.
+
+```{r}
+sum(duplicated(df))
+```
+There are 6 duplicated rows that need to be removed.
+```{r}
+df <- df %>% distinct()
+sum(duplicated(df))
+```
+
+- **Format Issues**: Ensure all variables are in appropriate formats (e.g., dates are in Date format, numerical values are numeric).
+
+```{r}
+str(df)
+```
+
+The Release date can be formatted to Date type.
+
+```{r}
+df$Release.date <- as.Date(df$Release.date, , format = "%b %d, %Y")
+```
+
+Convert Windows, Linux, Mac variables to categorical variables.
+
+```{r}
+df <- df %>%
+  mutate(
+    Windows = as.factor(Windows),
+    Linux = as.factor(Linux),
+    Mac = as.factor(Mac)
+  )
+```
+
+```{r}
+df$Estimated.owners <- as.factor(df$Estimated.owners)
+```
+
+## 4. Exploratory Data Analysis
+
+### Top games that have the most owners
+
+```{r}
+summary(df$Estimated.owners)
+```
+
+```{r}
+df$Estimated.owners <- factor(df$Estimated.owners, 
+                              levels = c("0 - 0", "0 - 20000", "20000 - 50000", "50000 - 100000", 
+                                         "100000 - 200000", "200000 - 500000", "500000 - 1000000", 
+                                         "1000000 - 2000000", "2000000 - 5000000", 
+                                         "5000000 - 10000000", "10000000 - 20000000", 
+                                         "20000000 - 50000000", "50000000 - 100000000", 
+                                         "100000000 - 200000000"))
+
+# Create the bar plot
+ggplot(df, aes(x = Estimated.owners)) +
+  geom_bar(fill = "steelblue") +
+  labs(title = "Distribution of Estimated Owners", 
+       x = "Estimated Owners Ranges", 
+       y = "Count") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+Most of the games have estimated 0 - 20000 owners. The top 3 groups with the highest number of owners (20,000,000 - 50,000,000, 50,000,000 - 100,000,000, and 100,000,000 - 200,000,000) were filtered to find the most owned games.
+
+```{r}
+# Filter for the specified ranges
+top_owned_games <- df[df$Estimated.owners %in% c("100000000 - 200000000", 
+                                                  "50000000 - 100000000", 
+                                                  "20000000 - 50000000"), ]
+
+# Convert Estimated.owners to a numeric range for sorting
+top_owned_games$OwnersNumeric <- as.numeric(gsub("[^0-9]", "", sub(" - .*", "", top_owned_games$Estimated.owners))) 
+
+# Sort the filtered games in descending order of owners
+sorted_games <- top_owned_games[order(-top_owned_games$OwnersNumeric), ]
+
+# Select only relevant columns (Game Name and Estimated Owners)
+result <- sorted_games[, ]
+
+# Display the result
+print(result)
+```
+
+### Top publishers
+
+#### Pulishers of the games that have more than 20000000 owners
+
+```{r}
+publisher_occurrences <- result %>%
+  group_by(Publishers) %>%
+  summarise(Occurrences = n()) %>%
+  arrange(desc(Occurrences))
+
+# Display the occurrences
+print(publisher_occurrences)
+```
+
+Among the top games that have the most owners, Valve has 6 games in the list, Amazon Games has 2, and Ubisoft has 2.
+
+#### Top publishers by number of games
+
+```{r}
+# Count occurrences of each publisher, excluding empty levels
+top_publishers_games <- df %>%
+  group_by(Publishers) %>%
+  summarise(Number_of_Games = n(), .groups = 'drop') %>%
+  filter(Publishers != "") %>%  # Remove empty levels
+  arrange(desc(Number_of_Games)) %>%
+  slice_head(n = 10)  # Get the top 10 publishers
+
+# Display the top publishers
+print(top_publishers_games)
+```
+
+These are the top 10 publishers that publish the most games. Big Fish Games dominate other publishers in terms of quantity, with 499 games.
+
+### Game genres trends over the years
+
+```{r}
+# Create a new column for the year of release
+df$Year <- format(df$Release.date, "%Y")
+df$Year <- as.numeric(df$Year)
+
+# Separate multiple genres
+df_genres <- df %>%
+  separate_rows(Genres, sep = ",") %>%
+  filter(!is.na(Genres) & Genres != "")  # Remove empty or NA genres
+
+# Count the number of games per genre by year
+genre_by_year <- df_genres %>%
+  group_by(Year, Genres) %>%
+  summarise(Count = n(), .groups = 'drop')
+
+genre_by_year <- genre_by_year %>%
+  filter(Year < 2024)
+
+# Create a plot to show the trends over time
+ggplot(genre_by_year, aes(x = Year, y = Count, color = Genres)) +
+  geom_line(linewidth = 0.8) +
+  labs(title = "Trending Game Genres Over Time", 
+       x = "Year", 
+       y = "Number of Games Released", 
+       color = "Genres") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  xlim(1997, NA)
+
+```
+
+The plot shows a significant increase in the number of games released starting around 2010, with a steep rise around 2015 and continuing into the 2020s. Indie, Casual, Adventure, and Action are among the fastest-growing genres in terms of the number of games released over time. There are a wide range of game genres. Some lines show only gradual increases or relatively flat growth, indicating that those genres may be niche or less popular. 
+
+#### Top 10 genres of all time
+
+```{r}
+# Count the number of games per genre for all years
+top_genres_all_time <- df_genres %>%
+  group_by(Genres) %>%
+  summarise(GameCount = n(), .groups = 'drop') %>%
+  arrange(desc(GameCount))  # Sort by the count in descending order
+
+# Print the top 10 genres by count for all time
+head(top_genres_all_time, 10)
+```
+
+#### Top 10 genres in 2024 
+
+```{r}
+df_2024 <- df_genres %>%
+  filter(Year == 2024)
+
+# Count the number of games per genre in 2024
+top_genres_2024 <- df_2024 %>%
+  group_by(Genres) %>%
+  summarise(GameCount = n(), .groups = 'drop') %>%
+  arrange(desc(GameCount))  # Sort by the count in descending order
+
+# Print the top genres in 2024 by count
+head(top_genres_2024, 10)
+```
+
+The top 10 genres of all time and in 2024 lists are not so different. The most popular genres are still Indie, Casual, Action, Adventure, Strategy and Simulation.
+
+### Price distriubtion
+#### Overall price distribution
+
+```{r}
+# Create a boxplot of the Price
+ggplot(df, aes(y = Price)) + 
+  geom_boxplot() +
+  labs(title = "Boxplot of Prices", y = "Price") +
+  theme_minimal()
+```
+
+The plot has some extreme outliers. These outliers are eliminated by 1.5 IQR rule.
+
+```{r}
+# Calculate Q1, Q3, and IQR
+price_Q1 <- quantile(df$Price, 0.25)
+price_Q3 <- quantile(df$Price, 0.75)
+price_IQR <- price_Q3 - price_Q1
+
+# Define the bounds for outliers
+price_lower_bound <- price_Q1 - 1.5 * price_IQR
+price_upper_bound <- price_Q3 + 1.5 * price_IQR
+
+# Filter out outliers from the dataset
+df_price <- df %>%
+  filter(Price >= price_lower_bound & Price <= price_upper_bound)
+
+# Create a boxplot of prices without outliers
+ggplot(df_price, aes(y = Price)) +
+  geom_boxplot() +  # This removes outliers from the plot
+  labs(title = "Boxplot of Prices (Outliers Removed)", y = "Price") +
+  theme_minimal()
+```
+
+```{r}
+# Create a histogram of the price variable
+ggplot(df_price, aes(x = Price)) +  # Replace 'Price' with the actual column name for price
+  geom_histogram(binwidth = 1, fill = "lightblue", color = "black") +  # Adjust binwidth as needed
+  labs(title = "Histogram of Prices (Outliers Removed)", x = "Price", y = "Frequency") +
+  theme_minimal()
+```
+
+Summary statistics of Price.
+
+```{r}
+summary(df_price$Price)
+```
+
+The majorities of games (with some outliers with very high prices removed) have prices less than \$10; most of which are free or have a very low cost. The median price is about \$4. There are noticeable peaks at certain price points (e.g., around \$10, \$15, and \$20), suggesting that there are common pricing strategies or thresholds for games.
+Among the most owned games, there are only 3 games that have price greater than \$20, including New World (\$39.99), Elden Ring (\$59.99), Rust (\$39.99). The majority of the list are free.
+
+#### Price distribution by estimated owners
+
+```{r}
+ggplot(df_price, aes(x = Price)) +  
+  geom_boxplot() +
+  labs(title = "Histogram of Prices (Grouped by Estimated Owners)", x = "Price", y = "Frequency") +
+  theme_minimal() +
+  facet_wrap(~ Estimated.owners)  # Group by 'Estimated.owners' and create separate histograms for each
+```
+The median prices of games that have 0 - 500000 owners are about \$5, about \$10 for games that have 500000 - 50000000 owners, about \$5 for games that have 5000000 - 20000000, and about \$0 for games that have 20000000 - 200000000 owners. Recall that most of the games have estimated 0 - 20000 owners. The median price of this group (about \$5) may reflect the majority of game prices, which is close to the \$4 overall median price.
+
+### Relationship between genres and prices
+
+```{r}
+# Add a unique ID column to df
+df <- df %>%
+  mutate(ID = row_number())  # Creates a unique ID for each row
+
+genres_matrix <- df %>%
+  select(ID, Genres) %>%  # Select only ID and Genres columns
+  separate_rows(Genres, sep = ",") %>%  # Split genres into separate rows
+  mutate(value = 1) %>%  # Add a value column to indicate presence of the genre
+  spread(key = Genres, value = value, fill = 0)  # One-hot encoding of genres
+
+# Check the first few rows of genres_matrix
+head(genres_matrix)
+```
+
+```{r}
+price_genres <- genres_matrix %>%
+  left_join(df %>% select(ID, Price), by = "ID") %>%  # Join Price column using ID
+  select(-ID)  # Drop the ID column
+
+# Check the first few rows of price_genres
+head(price_genres)
+```
+
+```{r}
+# Now, calculate the correlation between Price and each genre
+cor_price_genres <- sapply(price_genres %>% select(-Price), function(x) {
+  cor(x, price_genres$Price, use = "complete.obs")
+})
+
+# Sort and display the correlations
+cor_price_genres <- sort(cor_price_genres, decreasing = TRUE)
+print("Price and each genre correlation coefficients")
+print(cor_price_genres)
+```
+
+The "Free to Play" genre and Price have the highest correlation in the list, which is approximately -0.1636. However, this correlation is quite weak, indicating that there is almost no relationship between Price and the Genres.
+
+### Relationship between variables
+
+```{r}
+cor_matrix <- df %>%
+  select(Price, Average.playtime.forever, Average.playtime.two.weeks, Median.playtime.forever, Median.playtime.two.weeks, User.score, Positive, Negative, Recommendations, Year) %>%
+  cor(use = "complete.obs")
+
+# Step 2: Reshape the matrix into long format
+cor_long <- as.data.frame(as.table(cor_matrix))
+
+# Rename columns for clarity
+colnames(cor_long) <- c("Var1", "Var2", "Correlation")
+
+# Step 3: Plot the correlation heatmap using ggplot2
+ggplot(cor_long, aes(Var1, Var2, fill = Correlation)) +
+  geom_tile() +
+  geom_text(aes(label = round(Correlation, 2)), color = "white", size = 4) +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", midpoint = 0, limit = c(-1, 1)) +
+  labs(title = "Correlation Heatmap", x = "", y = "") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.text.y = element_text(angle = 45, hjust = 1))
+```
+
+The correlation heatmap reveals strong relationships between the Positive, Negative, and Recommendations variables, indicating that these factors are closely related to one another. *The Price is not correlated to any other variables. This may imply that the pricing strategy for these games is influenced by other factors not captured in this dataset, or that pricing decisions are largely independent of other observed metrics.* The median and mean play time show weak correlations with the median and mean play time forever. This indicates that a game’s long-term playtime is not necessarily indicative of its more recent playtime.
+
+#### Relationship between postive and negative ratings
+
+The variables Positive, Negative, and Recommendations depend on the total the number of owners of all the games. The analysis of the relationships between these variables is conducted by grouping the data based on the estimated number of owners.
+
+```{r}
+df_rating <- df %>%
+  group_by(Estimated.owners) %>%  # Group by 'Estimated.owners'
+  summarise(
+    total_positive = sum(Positive, na.rm = TRUE),  # Sum of Positive ratings for each group
+    total_negative = sum(Negative, na.rm = TRUE),  # Sum of Negative ratings for each group
+    mean_positive = mean(Positive, na.rm = TRUE),  # Average Positive rating per game in each group
+    mean_negative = mean(Negative, na.rm = TRUE),  # Average Negative rating per game in each group
+    median_positive = median(Positive, na.rm = TRUE),  # Median of Positive ratings
+    median_negative = median(Negative, na.rm = TRUE),  # Median of Negative ratings
+  )
+```
+
+```{r}
+# Summarize the data by calculating the sum of Positive and Negative ratings
+
+# Create the grouped bar plot
+df_rating_grouped <- df_rating %>%
+  pivot_longer(cols = c(total_positive, total_negative),
+               names_to = "Rating_Type",
+               values_to = "Total_Rating")
+
+ggplot(df_rating_grouped, aes(x = Estimated.owners, y = Total_Rating, fill = Rating_Type)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Total Positive and Negative Ratings by Estimated Owners",
+       x = "Estimated Owners",
+       y = "Total Rating Count") +
+  theme_minimal() +
+  scale_fill_manual(values = c("total_positive" = "lightblue", "total_negative" = "salmon")) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)  # Rotate x-axis labels by 45 degrees
+  )
+
+```
+
+The plot shows that the number of of Postitive ratings outnumber that of Negative ratings. 
+```{r}
+# Summarize the data by calculating the total positive and negative ratings for each group
+df_summary <- df %>%
+  group_by(Estimated.owners) %>%
+  summarise(
+    total_positive = sum(Positive, na.rm = TRUE),
+    total_negative = sum(Negative, na.rm = TRUE)
+  )
+
+# Calculate total ratings and percentages for positive and negative
+df_summary <- df_summary %>%
+  mutate(
+    total_ratings = total_positive + total_negative,
+    positive_percentage = total_positive / total_ratings * 100,
+    negative_percentage = total_negative / total_ratings * 100
+  )
+
+# Pivot the data to long format for stacked bar plot
+df_summary_long <- df_summary %>%
+  pivot_longer(cols = c(positive_percentage, negative_percentage),
+               names_to = "Rating_Type",
+               values_to = "Percentage")
+
+# Plot the stacked bar chart
+ggplot(df_summary_long, aes(x = Estimated.owners, y = Percentage, fill = Rating_Type)) +
+  geom_bar(stat = "identity", position = "stack") +  # Position "stack" to stack the bars
+  labs(title = "Percentage of Positive and Negative Ratings by Estimated Owners",
+       x = "Estimated Owners",
+       y = "Percentage (%)") +
+  theme_minimal() +
+  scale_fill_manual(values = c("positive_percentage" = "lightblue", "negative_percentage" = "salmon")) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+There are only minor variations in the proportion of positive evaluations to all ratings among the various estimated owner groups. This implies that the percentage of favorable feedback stays comparatively stable, irrespective of the size of the user base. 
+
+#### Relationship between postitive ratings and reccommendations
+
+```{r}
+# Scatter plot to visualize the relationship
+ggplot(df, aes(x = Recommendations, y = Positive)) +
+  geom_point(alpha = 0.5) +
+  labs(title = "Relationship between Positive Reviews and Recommendations",
+       x = "Positive Reviews", y = "Recommendations") +
+  theme_minimal()
+```
+
+
+```{r}
+ggplot(df, aes(x = Recommendations, y = Positive, color = Estimated.owners)) +
+  geom_point(alpha = 0.6) +  # Scatter plot with some transparency for better visibility
+  labs(title = "Recommendations vs Positive Ratings by Estimated Owners",
+       x = "Recommendations", 
+       y = "Positive Ratings") +
+  theme_minimal() +
+  facet_wrap(~Estimated.owners, scales = "free") +  # Group by 'Estimated.owners'
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis labels
+    axis.text.y = element_text(size = 8),  # Reduce size of y-axis labels
+    strip.text = element_blank(),  # Remove facet labels (titles)
+    # plot.margin = margin(1, 1, 1, 2, "cm")  # Adjust plot margin for more space
+  )
+
+```
+
+The plot shows there is a strong correlation between Recommendations and Positive variables. This suggests that games that are well-received by users (high positive ratings) are more likely to be recommended.
+
+## 5. Hypothesis testing
+### 5.1. Hypothesis Testing: Effect of Positive Reviews on Recommendations
+
+Do games with more Positive reviews tend to receive more Recommendations?
+- Null Hypothesis ($H_0$): There is no significant relationship between the number of Positive reviews and the number of Recommendations.
+- Alternative Hypothesis ($H_1$): *Games with more Positive reviews tend to receive more Recommendations.*
+
+From the graphs in session 4, there appears to be a linear relationship between Positive and Recommendations. Linear regression model is chosen to quantify the relationship between these two variables and test whether it is statistically significant.
+
+```{r}
+model1 <- lm(Recommendations ~ Positive, data = df)
+summary(model1)
+```
+Since p-value < 2.2e-16, much less than 0.05, we reject the null hypothesis ($H_0$) and accept the alternative hypothesis ($H_1$). In conclusion, games with more Positive reviews tend to receive more Recommendations.
+
+### 5.2. Hypothesis Testing: Proportion of Positive Reviews by Estimated Owners
+
+Is the proportion of Positive reviews higher for games that have a higher number of Estimated Owners?
+
+- Null Hypothesis ($H_0$): The proportion of Positive reviews is the same across different groups of Estimated Owners.
+
+- Alternative Hypothesis ($H_1$): Games with a higher number of Estimated Owners have a higher proportion of Positive reviews.
+
+```{r}
+df_summary <- df_summary %>% filter(Estimated.owners != "0 - 0")  # there is no data in group 0 - 0
+
+contingency_table <- data.frame(
+  owner_category = df_summary$Estimated.owners,
+  positive_percentage = df_summary$positive_percentage,
+  negative_percentage = df_summary$negative_percentage
+)
+
+print(contingency_table)
+
+contingency_matrix <- as.matrix(contingency_table[, c("positive_percentage", "negative_percentage")])
+```
+
+Chi-squared test is performed to check if positive review proportion varies by Estimated Owners.
+
+```{r}
+# Perform the Chi-squared test
+chi_square_result <- chisq.test(contingency_matrix)
+print(chi_square_result)
+```
+
+Since p-value > 0.05, we accept the null hypothesis ($H_0$) and reject the alternative hypothesis ($H_1$). To conclude, *The proportion of Positive reviews is the same across different groups of Estimated Owners.*
+
+### 5.3. Hypothesis Testing: Effect of Multiple Genres on Positive and Negative Reviews
+
+Does the presence of multiple genres in a game affect the number of Positive and Negative reviews?
+
+- Null Hypothesis ($H_0$): The proportion of Positive and Negative reviews is the same regardless of whether a game has one or multiple genres.
+
+- Alternative Hypothesis ($H_1$): Games with multiple genres have a significantly different proportion of Positive and Negative reviews compared to games with a single genre.
+
+```{r}
+df$multiple_genres <- sapply(strsplit(as.character(df$Genres), ","), length)
+df$multiple_genres <- ifelse(df$multiple_genres > 9, "10+", df$multiple_genres)
+
+# Convert the column to a factor
+df$multiple_genres <- as.factor(df$multiple_genres)
+
+# View the updated column
+table(df$multiple_genres)
+```
+
+Compare number of positive and negative reviews between single and multiple-genre games
+```{r}
+reviews_by_genre <- df %>%
+  group_by(multiple_genres) %>%
+  summarise(
+    total_positive = sum(Positive, na.rm = TRUE),
+    total_negative = sum(Negative, na.rm = TRUE),
+    total_ratings = total_positive + total_negative,
+    positive_percentage = total_positive / total_ratings * 100,
+    negative_percentage = total_negative / total_ratings * 100
+  )
+
+print(reviews_by_genre)
+
+contingency_matrix2 <- as.matrix(reviews_by_genre[, c("positive_percentage", "negative_percentage")])
+```
+
+Similarly, Chi-square test is performed.
+
+```{r}
+chi_square_genre_result <- chisq.test(contingency_matrix2)
+print(chi_square_genre_result)
+```
+
+Since p-value < 0.05, we reject the null hypothesis ($H_0$) and accept the alternative hypothesis ($H_1$). *Games with multiple genres have a significantly different proportion of Positive and Negative reviews compared to games with a single genre.*
+
+## 6. References
+
+Abdalrhman Alkabani's [Games data cleaning, analysis , and visualization](https://www.kaggle.com/code/abdalrhmanalkabani/games-data-cleaning-analysis-and-visualization#Data-visulization): the notebook conducts exploratory data analysis in python and explores multiple issues such as most downloaded games, price distribution, top publishers, top genres ...
+
+## 7. Appendix
+
+### Most popular platforms (Windows, Linux, Mac)
+
+```{r}
+windows_count <- sum(df$Windows == "True")
+mac_count <- sum(df$Mac == "True")
+linux_count <- sum(df$Linux == "True")
+
+cat("Games that support Windows:", windows_count, "\n")
+cat("Games that support Mac:", mac_count, "\n")
+cat("Games that support Linux:", linux_count, "\n")
+```
+The number of games that support Windows outnumber those supporting Mac and Linux. Windows is, therefore, the most popular operating system for gaming.
